@@ -17,9 +17,14 @@ package exchange.core2.core.common;
 
 import lombok.Getter;
 
+/**
+ * 订单操作枚举
+ */
 @Getter
 public enum OrderAction {
+    // 卖出
     ASK(0),
+    // 买入
     BID(1);
 
     private byte code;

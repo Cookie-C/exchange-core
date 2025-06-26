@@ -20,7 +20,9 @@ import lombok.AllArgsConstructor;
 import java.util.Spliterator;
 import java.util.function.Consumer;
 
-
+/**
+ * 订单分段器
+ */
 @AllArgsConstructor
 public final class OrdersSpliterator implements Spliterator<OrderBookDirectImpl.DirectOrder> {
 

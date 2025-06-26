@@ -15,18 +15,22 @@
  */
 package exchange.core2.core.common;
 
+/**
+ * 匹配器事件类型
+ */
 public enum MatcherEventType {
 
-    // Trade event
+    // Trade event 交易事件
     // Can be triggered by place ORDER or for MOVE order command.
     TRADE,
 
-    // Reject event
+    // Reject event 拒绝事件
     // Can happen only when MARKET order has to be rejected by Matcher Engine due lack of liquidity
     // That basically means no ASK (or BID) orders left in the order book for any price.
     // Before being rejected active order can be partially filled.
     REJECT,
 
+    // 撤销事件
     // After cancel/reduce order - risk engine should unlock deposit accordingly
     REDUCE,
 

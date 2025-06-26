@@ -22,34 +22,63 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+/**
+ * 订单指令
+ */
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @ToString
 public final class OrderCommand implements IOrder {
 
+    /**
+     * 订单指令类型
+     */
     public OrderCommandType command;
 
+    /**
+     * 订单Id
+     */
     @Getter
     public long orderId;
 
+    /**
+     * 符号
+     */
     public int symbol;
 
+
+    /**
+     * 符号
+     */
     @Getter
     public long price;
 
+    /**
+     * 数量
+     */
     @Getter
     public long size;
 
+    /**
+     * 保留最低价格
+     */
     @Getter
     // new orders INPUT - reserved price for fast moves of GTC bid orders in exchange mode
     public long reserveBidPrice;
 
+    /**
+     * 订单动作
+     * 仅限于下单
+     */
     // required for PLACE_ORDER only;
     // for CANCEL/MOVE contains original order action (filled by orderbook)
     @Getter
     public OrderAction action;
 
+    /**
+     * 订单类型
+     */
     public OrderType orderType;
 
     @Getter
@@ -60,18 +89,19 @@ public final class OrderCommand implements IOrder {
 
     public int userCookie;
 
-    // filled by grouping processor:
-
+    // 分组处理器填充 filled by grouping processor:
     public long eventsGroup;
     public int serviceFlags;
 
-    // result code of command execution - can also be used for saving intermediate state
+    //  result code of command execution - can also be used for saving intermediate state
+    //  命令执行的结果代码也可以用于保存中间状态
     public CommandResultCode resultCode;
 
     // trade events chain
     public MatcherTradeEvent matcherEvent;
 
     // optional market data
+    // 可选市场数据
     public L2MarketData marketData;
 
     // sequence of last available for this command

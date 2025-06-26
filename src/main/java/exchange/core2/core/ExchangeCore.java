@@ -66,6 +66,7 @@ public final class ExchangeCore {
     private boolean stopped = false;
 
     // enable MatcherTradeEvent pooling
+    // 启用匹配器交易事件池化功能
     public static final boolean EVENTS_POOLING = false;
 
     /**

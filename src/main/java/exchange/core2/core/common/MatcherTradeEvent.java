@@ -29,11 +29,17 @@ import java.util.Objects;
 // TODO REDUCE needs remaining size (can write into size), bidderHoldPrice - can write into price
 // TODO REJECT needs remaining size (can not write into size),
 
+/**
+ * 匹配器交易事件
+ */
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
 public final class MatcherTradeEvent {
 
+    /**
+     * 事件类型
+     */
     public MatcherEventType eventType; // TRADE, REDUCE, REJECT (rare) or BINARY_EVENT (reports data)
 
     public int section;

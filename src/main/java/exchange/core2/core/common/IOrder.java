@@ -25,12 +25,32 @@ public interface IOrder extends StateHash {
 
     long getUid();
 
+    /**
+     * 获取动作
+     *
+     * @return
+     */
     OrderAction getAction();
 
+    /**
+     * 获取订单编号
+     *
+     * @return
+     */
     long getOrderId();
 
+    /**
+     * 获取时间戳
+     *
+     * @return
+     */
     long getTimestamp();
 
+    /**
+     * 获取预留买入价格
+     *
+     * @return
+     */
     long getReserveBidPrice();
 
 }

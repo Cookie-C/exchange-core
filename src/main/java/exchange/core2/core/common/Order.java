@@ -43,13 +43,21 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     @Getter
     public long price;
 
+    // 订单量
     @Getter
     public long size;
 
+    // 以成交量
     @Getter
     public long filled;
 
-    // new orders - reserved price for fast moves of GTC bid orders in exchange mode
+    /**
+     * 保留买入价格
+     *
+     * new orders - reserved price for fast moves of GTC bid orders in exchange mode
+     * 重点：Good Till Cancelled（直至取消有效）。
+     * 解释：允许投资者设定一个交易指令，该指令在被取消之前一直有效，只要市场价格达到或满足指定条件，交易就会自动执行。
+     */
     @Getter
     public long reserveBidPrice;
 

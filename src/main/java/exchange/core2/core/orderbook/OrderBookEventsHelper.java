@@ -37,10 +37,22 @@ public final class OrderBookEventsHelper {
 
     public static final OrderBookEventsHelper NON_POOLED_EVENTS_HELPER = new OrderBookEventsHelper(MatcherTradeEvent::new);
 
+    // 匹配器交易事件供应函数接口
     private final Supplier<MatcherTradeEvent> eventChainsSupplier;
-
+    // 事件链头
     private MatcherTradeEvent eventsChainHead;
 
+    /**
+     * 发送交易事件
+     *
+     * @param matchingOrder 匹配订单
+     * @param makerCompleted 交易完成标记
+     * @param takerCompleted 取样完成标记
+     * @param size 取样数量
+     * @param bidderHoldPrice 成交价
+     *
+     * @return 匹配交易事件实例
+     */
     public MatcherTradeEvent sendTradeEvent(final IOrder matchingOrder,
                                             final boolean makerCompleted,
                                             final boolean takerCompleted,
@@ -183,17 +195,28 @@ public final class OrderBookEventsHelper {
         return result;
     }
 
+    /**
+     * 新匹配事件
+     *
+     * @return 匹配事件实例
+     */
     private MatcherTradeEvent newMatcherEvent() {
 
+        // 是否启用匹配器交易事件池化功能
         if (EVENTS_POOLING) {
+            // 链头为空
             if (eventsChainHead == null) {
+                // 从池中获取链头
                 eventsChainHead = eventChainsSupplier.get();
 //            log.debug("UPDATED HEAD size={}", eventsChainHead == null ? 0 : eventsChainHead.getChainSize());
             }
+            // 返回当前事件链头
             final MatcherTradeEvent res = eventsChainHead;
+            // 链头游标指向链头的下一个元素,释放当前链头
             eventsChainHead = eventsChainHead.nextEvent;
             return res;
         } else {
+            // 未启用池化功能直接创建新事件
             return new MatcherTradeEvent();
         }
     }

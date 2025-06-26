@@ -30,10 +30,19 @@ import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
+/**
+ * 订单薄简单实现
+ */
 @Slf4j
 public final class OrderBookNaiveImpl implements IOrderBook {
 
+    /**
+     * 卖出订单桶
+     */
     private final NavigableMap<Long, OrdersBucketNaive> askBuckets;
+    /**
+     * 买入订单桶
+     */
     private final NavigableMap<Long, OrdersBucketNaive> bidBuckets;
 
     private final CoreSymbolSpecification symbolSpec;
