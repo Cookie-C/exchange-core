@@ -39,30 +39,60 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+/**
+ * 订单薄直接实现
+ */
 @Slf4j
 public final class OrderBookDirectImpl implements IOrderBook {
 
-    // buckets
+    // buckets 每个桶（Bucket）维护一个订单链表，链表的尾部（tail）是价格最优的订单（对于卖单是价格最低，对于买单是价格最高）
+    /**
+     * 卖单桶
+     */
     private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets;
+    /**
+     * 买单桶
+     */
     private final LongAdaptiveRadixTreeMap<Bucket> bidPriceBuckets;
 
     // symbol specification
+    /**
+     * 币种说明
+     */
     private final CoreSymbolSpecification symbolSpec;
 
     // index: orderId -> order
+    /**
+     * 作为订单索引，便于通过订单ID快速查找订单
+     */
     private final LongAdaptiveRadixTreeMap<DirectOrder> orderIdIndex;
-    //private final Long2ObjectHashMap<DirectOrder> orderIdIndex = new Long2ObjectHashMap<>();
-    //private final LongObjectHashMap<DirectOrder> orderIdIndex = new LongObjectHashMap<>();
+//    private final Long2ObjectHashMap<DirectOrder> orderIdIndex = new Long2ObjectHashMap<>();
+//    private final LongObjectHashMap<DirectOrder> orderIdIndex = new LongObjectHashMap<>();
 
-    // heads (nullable)
+    // heads (nullable) 维护两个指针：bestAskOrder和bestBidOrder，分别指向当前最优的卖单和买单（即卖单最低价，买单最高价）
+    /**
+     * 最优卖单
+     */
     private DirectOrder bestAskOrder = null;
+    /**
+     * 最优买单
+     */
     private DirectOrder bestBidOrder = null;
 
     // Object pools
+    /**
+     * 使用对象池（ObjectsPool）来重用对象，减少GC压力
+     */
     private final ObjectsPool objectsPool;
 
+    /**
+     * 订单薄事件助手
+     */
     private final OrderBookEventsHelper eventsHelper;
 
+    /**
+     * 启用调试
+     */
     private final boolean logDebug;
 
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec,
@@ -218,35 +248,44 @@ public final class OrderBookDirectImpl implements IOrderBook {
         return Long.MAX_VALUE;
     }
 
-
+    /**
+     * 订单匹配：新订单进入时，会尝试与对手方的最优订单进行撮合（tryMatchInstantly方法）。撮合过程中，会更新订单状态，生成交易事件，并移除完全成交的订单。
+     *
+     * @param takerOrder 接收订单
+     * @param triggerCmd 触发命令
+     *
+     * @return 已成交量
+     */
     private long tryMatchInstantly(final IOrder takerOrder,
                                    final OrderCommand triggerCmd) {
 
+        // 是否买入订单
         final boolean isBidAction = takerOrder.getAction() == OrderAction.BID;
-
+        // 提交卖出方向的FOK_BUDGET订单时限价=0,其余场景正常取订单报价
         final long limitPrice = (triggerCmd.command == OrderCommandType.PLACE_ORDER && triggerCmd.orderType == OrderType.FOK_BUDGET && !isBidAction)
                 ? 0L
                 : takerOrder.getPrice();
 
+        // 市场订单
         DirectOrder makerOrder;
-        if (isBidAction) {
+        if (isBidAction) { // 买单
             makerOrder = bestAskOrder;
-            if (makerOrder == null || makerOrder.price > limitPrice) {
+            if (makerOrder == null || makerOrder.price > limitPrice) { // 市场最优卖单价格高于买单限价,即无可成交订单,返回已成交量
                 return takerOrder.getFilled();
             }
-        } else {
+        } else { // 卖单
             makerOrder = bestBidOrder;
-            if (makerOrder == null || makerOrder.price < limitPrice) {
+            if (makerOrder == null || makerOrder.price < limitPrice) { // 市场最优买单价格低于卖单限价,即无可成交订单,返回已成交量
                 return takerOrder.getFilled();
             }
         }
 
+        // 主动买卖单的剩余量 = 总量 - 已成交量
         long remainingSize = takerOrder.getSize() - takerOrder.getFilled();
-
         if (remainingSize == 0) {
             return takerOrder.getFilled();
         }
-
+        // 实时获取最优订单的桶的最后一个订单
         DirectOrder priceBucketTail = makerOrder.parent.tail;
 
         final long takerReserveBidPrice = takerOrder.getReserveBidPrice();
@@ -254,6 +293,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
 //        log.debug("MATCHING taker: {} remainingSize={}", takerOrder, remainingSize);
 
+        // 匹配订单事件链
         MatcherTradeEvent eventsTail = null;
 
         // iterate through all orders
@@ -261,20 +301,23 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
 //            log.debug("  matching from maker order: {}", makerOrder);
 
-            // calculate exact volume can fill for this order
+            // calculate exact volume can fill for this order 计算此次订单可成交量：v = min(提交单剩余需成交量, 挂单剩余量)
             final long tradeSize = Math.min(remainingSize, makerOrder.size - makerOrder.filled);
 //                log.debug("  tradeSize: {} MIN(remainingSize={}, makerOrder={})", tradeSize, remainingSize, makerOrder.size - makerOrder.filled);
-
+            // 更新市场挂单的成交量
             makerOrder.filled += tradeSize;
+            // 更新订单桶的成交量
             makerOrder.parent.volume -= tradeSize;
+            // 更新主动单的剩余成交量
             remainingSize -= tradeSize;
 
-            // remove from order book filled orders
+            // remove from order book filled orders 从订单薄中移除已完全成交的市场挂单
             final boolean makerCompleted = makerOrder.size == makerOrder.filled;
             if (makerCompleted) {
+                // 市场挂单完全成交,订单桶订单数-1
                 makerOrder.parent.numOrders--;
             }
-
+            // 生成匹配订单事件链
             final MatcherTradeEvent tradeEvent = eventsHelper.sendTradeEvent(makerOrder, makerCompleted, remainingSize == 0, tradeSize,
                     isBidAction ? takerReserveBidPrice : makerOrder.reserveBidPrice);
 
@@ -309,8 +352,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 }
             }
 
-            // switch to next order
-            makerOrder = makerOrder.prev; // can be null
+            // switch to next order 转到下一个市场订单
+            makerOrder = makerOrder.prev; // can be null 可能为空
 
         } while (makerOrder != null
                 && remainingSize > 0
@@ -777,11 +820,23 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }, size);
     }
 
+    /**
+     * 获取总卖单桶
+     *
+     * @param limit 界限
+     * @return
+     */
     @Override
     public int getTotalAskBuckets(final int limit) {
         return askPriceBuckets.size(limit);
     }
 
+    /**
+     * 获取总买单桶
+     *
+     * @param limit 界限
+     * @return
+     */
     @Override
     public int getTotalBidBuckets(final int limit) {
         return bidPriceBuckets.size(limit);
@@ -829,7 +884,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
         public long timestamp;
 
         // fast orders structure
-
+        /**
+         * 快速订单结构
+         */
         Bucket parent;
 
         // next order (towards the matching direction, price grows for asks)
@@ -916,10 +973,22 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
+    /**
+     * 订单桶
+     */
     @ToString
     private static class Bucket {
+        /**
+         * 量
+         */
         long volume;
+        /**
+         * 订单数
+         */
         int numOrders;
+        /**
+         * 链尾订单
+         */
         DirectOrder tail;
     }
 }

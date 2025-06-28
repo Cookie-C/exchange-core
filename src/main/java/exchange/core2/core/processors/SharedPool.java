@@ -21,11 +21,17 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.LinkedBlockingQueue;
 
+/**
+ * 事件共享池
+ */
 @Slf4j
 public final class SharedPool {
 
     private final LinkedBlockingQueue<MatcherTradeEvent> eventChainsBuffer;
 
+    /**
+     * 链长
+     */
     @Getter
     private final int chainLength;
 
@@ -55,6 +61,8 @@ public final class SharedPool {
     }
 
     /**
+     * 从缓存获取下一条链数据
+     *
      * Request next chain from buffer
      * Threadsafe
      *
@@ -71,6 +79,8 @@ public final class SharedPool {
     }
 
     /**
+     * 提供下一跳链
+     *
      * Offers next chain.
      * Threadsafe (single producer safety is sufficient)
      *

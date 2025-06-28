@@ -17,18 +17,42 @@ package exchange.core2.core.common;
 
 import lombok.Getter;
 
+/**
+ * 订单类型
+ */
 @Getter
 public enum OrderType {
 
-    // Good till Cancel - equivalent to regular limit order
+    /**
+     * Good till Cancel - equivalent to regular limit order
+     * 挂单 直到撤单
+     */
     GTC(0),
 
-    // Immediate or Cancel - equivalent to strict-risk market order
-    IOC(1), // with price cap
-    IOC_BUDGET(2), // with total amount cap
 
-    // Fill or Kill - execute immediately completely or not at all
-    FOK(3), // with price cap
+    /**
+     * Immediate or Cancel - equivalent to strict-risk market order
+     * with price cap 在价格上限下
+     *
+     * 立即成交否则撤单
+     */
+    IOC(1),
+
+    /**
+     * with total amount cap 包含价格上限
+     */
+    IOC_BUDGET(2),
+
+    /**
+     * Fill or Kill - execute immediately completely or not at all
+     * with price cap 在价格上限下
+     *
+     * 立即全部成交否则取消
+     */
+    FOK(3), //
+    /**
+     * 包含价格上限
+     */
     FOK_BUDGET(4); // total amount cap
 
     private final byte code;

@@ -24,6 +24,9 @@ import lombok.RequiredArgsConstructor;
 
 import java.util.function.Supplier;
 
+/**
+ * 核心等待策略
+ */
 @RequiredArgsConstructor
 public enum CoreWaitStrategy {
 

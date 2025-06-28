@@ -35,9 +35,12 @@ import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
 @RequiredArgsConstructor
 public final class OrderBookEventsHelper {
 
+    /**
+     * 非池化事件助手
+     */
     public static final OrderBookEventsHelper NON_POOLED_EVENTS_HELPER = new OrderBookEventsHelper(MatcherTradeEvent::new);
 
-    // 匹配器交易事件供应函数接口
+    // 事件链提供者
     private final Supplier<MatcherTradeEvent> eventChainsSupplier;
     // 事件链头
     private MatcherTradeEvent eventsChainHead;
@@ -45,10 +48,10 @@ public final class OrderBookEventsHelper {
     /**
      * 发送交易事件
      *
-     * @param matchingOrder 匹配订单
-     * @param makerCompleted 交易完成标记
-     * @param takerCompleted 取样完成标记
-     * @param size 取样数量
+     * @param matchingOrder 市场挂单
+     * @param makerCompleted 市场挂单交易完成标记
+     * @param takerCompleted 主动单成交完成标记
+     * @param size 成交数量
      * @param bidderHoldPrice 成交价
      *
      * @return 匹配交易事件实例
@@ -202,11 +205,11 @@ public final class OrderBookEventsHelper {
      */
     private MatcherTradeEvent newMatcherEvent() {
 
-        // 是否启用匹配器交易事件池化功能
+        // 是否启用匹配器事件池化功能
         if (EVENTS_POOLING) {
             // 链头为空
             if (eventsChainHead == null) {
-                // 从池中获取链头
+                // 从事件链提供者获取链头
                 eventsChainHead = eventChainsSupplier.get();
 //            log.debug("UPDATED HEAD size={}", eventsChainHead == null ? 0 : eventsChainHead.getChainSize());
             }

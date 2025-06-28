@@ -17,12 +17,32 @@ package exchange.core2.core.common;
 
 public interface IOrder extends StateHash {
 
+    /**
+     * 获取订单价格
+     *
+     * @return
+     */
     long getPrice();
 
+    /**
+     * 获取订单数量
+     *
+     * @return
+     */
     long getSize();
 
+    /**
+     * 获取已成交量
+     *
+     * @return
+     */
     long getFilled();
 
+    /**
+     * 获取用户ID
+     *
+     * @return
+     */
     long getUid();
 
     /**

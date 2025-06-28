@@ -33,7 +33,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * 订单桶
+ * 订单桶简单实现
  * 线程安全性需由外部保证（非线程安全实现）
  *
  * 关键设计特点
@@ -124,8 +124,8 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
      *
      * 从最早订单开始匹配（FIFO），直到满足需成交量volumeToCollect或桶内订单耗尽
      *
-     * @param volumeToCollect - volume to collect 需成交量
-     * @param activeOrder     - for getReserveBidPrice 用于获取竞拍预订买入价格
+     * @param volumeToCollect - volume to collect 需收集的成交量
+     * @param activeOrder     - for getReserveBidPrice 主动买卖的订单,用于获取竞拍预订买入价格
      * @param helper          - events helper 事件助手
      *
      * @return - total matched volume, events, completed orders to remove // 交易事件链表头、尾，实际匹配总量，需移除的订单ID列表
@@ -138,7 +138,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
 
         // 总匹配量
         long totalMatchingVolume = 0;
-
+        // 代删除订单列表
         final List<Long> ordersToRemove = new ArrayList<>();
 
         // 匹配交易事件头
@@ -167,7 +167,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
             // remove from order book filled orders
             // 完全成交标志
             final boolean fullMatch = order.size == order.filled;
-            // 买入价格为买家出价优先,卖单取买入指令的买入价,买单取买单的买入价.
+            // 投标人持有价格,那个单是买单取那个单的报的买入价格
             final long bidderHoldPrice = order.action == OrderAction.ASK ? activeOrder.getReserveBidPrice() : order.reserveBidPrice;
             // 生成交易事件（MatcherTradeEvent）
             final MatcherTradeEvent tradeEvent = helper.sendTradeEvent(order, fullMatch, volumeToCollect == 0, v, bidderHoldPrice);
@@ -176,7 +176,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
                 // 链尾为空,链表还未开始构建,当前事件节点为链头
                 eventsHead = tradeEvent;
             } else {
-                // 当前事件链接到链尾
+                // 当前事件链接到原链尾
                 eventsTail.nextEvent = tradeEvent;
             }
             // 更新链尾节点为当前事件节点
@@ -323,11 +323,24 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
                 && getAllOrders().equals(other.getAllOrders());
     }
 
+
     @AllArgsConstructor
     public final class MatcherResult {
+        /**
+         * 事件链头
+         */
         public MatcherTradeEvent eventsChainHead;
+        /**
+         * 事件链尾
+         */
         public MatcherTradeEvent eventsChainTail;
+        /**
+         * 成交量
+         */
         public long volume;
+        /**
+         * 待删除的订单ID列表
+         */
         public List<Long> ordersToRemove;
     }
 

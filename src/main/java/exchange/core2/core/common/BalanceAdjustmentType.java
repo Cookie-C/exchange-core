@@ -17,6 +17,9 @@ package exchange.core2.core.common;
 
 import lombok.Getter;
 
+/**
+ * 余额调整类型
+ */
 @Getter
 public enum BalanceAdjustmentType {
     ADJUSTMENT(0),

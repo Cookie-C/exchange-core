@@ -32,7 +32,18 @@ import java.util.stream.Stream;
 
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
+    // 核心操作
+
     /**
+     * 处理新订单
+     * 订单类型支持
+     *
+     * GTC (Good Till Cancel)：未成交部分挂单
+     *
+     * IOC (Immediate Or Cancel)：未成交部分立即拒绝
+     *
+     * FOK_BUDGET (Fill Or Kill)：要求完全成交否则全拒
+     *
      * Process new order.
      * Depending on price specified (whether the order is marketable),
      * order will be matched to existing opposite GTC orders from the order book.
@@ -47,6 +58,9 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     void newOrder(OrderCommand cmd);
 
     /**
+     *
+     * 撤单
+     *
      * Cancel order completely.
      * <p>
      * fills cmd.action  with original original order action
@@ -57,6 +71,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     CommandResultCode cancelOrder(OrderCommand cmd);
 
     /**
+     * 减量
+     *
      * Decrease the size of the order by specific number of lots
      * <p>
      * fills cmd.action  with original  order action
@@ -67,6 +83,9 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     CommandResultCode reduceOrder(OrderCommand cmd);
 
     /**
+     *
+     * 改价
+     *
      * Move order
      * <p>
      * newPrice - new price (if 0 or same - order will not moved)
@@ -78,9 +97,13 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     CommandResultCode moveOrder(OrderCommand cmd);
 
     // testing only ?
-    int getOrdersNum(OrderAction action);
 
-    // testing only ?
+    /**
+     * 总成交量
+     *
+     * @param action
+     * @return
+     */
     long getTotalOrdersVolume(OrderAction action);
 
     // testing only ?
@@ -95,6 +118,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     OrderBookImplType getImplementationType();
 
     /**
+     * 查找指定用户的所有订单
+     *
      * Search for all orders for specified user.<p>
      * Slow, because order book do not maintain uid-to-order index.<p>
      * Produces garbage.<p>
@@ -134,7 +159,9 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                 getSymbolSpec().stateHash());
     }
 
+    // 状态查询
     /**
+     * L2行情快照
      * Obtain current L2 Market Data snapshot
      *
      * @param size max size for each part (ask, bid)
@@ -148,6 +175,14 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         fillBids(bidsSize, data);
         return data;
     }
+
+    /**
+     * 订单数量统计
+     *
+     * @param action
+     * @return
+     */
+    int getOrdersNum(OrderAction action);
 
     default L2MarketData getL2MarketDataSnapshot() {
         return getL2MarketDataSnapshot(Integer.MAX_VALUE);
@@ -172,7 +207,14 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     int getTotalBidBuckets(int limit);
 
-
+    /**
+     * 撮合流程统一入口
+     *
+     * @param orderBook 订单薄
+     * @param cmd 指令
+     *
+     * @return 指令结果
+     */
     static CommandResultCode processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
 
         final OrderCommandType commandType = cmd.command;
