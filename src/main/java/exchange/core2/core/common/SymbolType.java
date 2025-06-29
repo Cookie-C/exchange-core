@@ -19,10 +19,25 @@ import lombok.Getter;
 
 import java.util.Arrays;
 
+/**
+ * 交易品种类型枚举
+ */
 @Getter
 public enum SymbolType {
+
+    /**
+     * 货币兑换对
+     */
     CURRENCY_EXCHANGE_PAIR(0),
+
+    /**
+     * 期货合约
+     */
     FUTURES_CONTRACT(1),
+
+    /**
+     * 期权
+     */
     OPTION(2);
 
     private byte code;

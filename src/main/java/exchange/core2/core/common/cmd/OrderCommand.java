@@ -97,7 +97,7 @@ public final class OrderCommand implements IOrder {
     //  命令执行的结果代码也可以用于保存中间状态
     public CommandResultCode resultCode;
 
-    // trade events chain
+    // trade events chain 交易事件链
     public MatcherTradeEvent matcherEvent;
 
     // optional market data

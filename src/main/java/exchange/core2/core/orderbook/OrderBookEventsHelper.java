@@ -87,6 +87,14 @@ public final class OrderBookEventsHelper {
 
     }
 
+    /**
+     * 发送缩减事件
+     *
+     * @param order
+     * @param reduceSize
+     * @param completed
+     * @return
+     */
     public MatcherTradeEvent sendReduceEvent(final IOrder order, final long reduceSize, final boolean completed) {
 //        log.debug("Cancel ");
         final MatcherTradeEvent event = newMatcherEvent();

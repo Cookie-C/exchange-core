@@ -33,7 +33,6 @@ import java.util.stream.Stream;
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     // 核心操作
-
     /**
      * 处理新订单
      * 订单类型支持
@@ -97,7 +96,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     CommandResultCode moveOrder(OrderCommand cmd);
 
     // testing only ?
-
     /**
      * 总成交量
      *
@@ -208,10 +206,11 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     int getTotalBidBuckets(int limit);
 
     /**
+     * 处理指令
      * 撮合流程统一入口
      *
      * @param orderBook 订单薄
-     * @param cmd 指令
+     * @param cmd 接受的指令
      *
      * @return 指令结果
      */

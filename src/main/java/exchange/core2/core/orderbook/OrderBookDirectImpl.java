@@ -47,11 +47,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     // buckets 每个桶（Bucket）维护一个订单链表，链表的尾部（tail）是价格最优的订单（对于卖单是价格最低，对于买单是价格最高）
     /**
-     * 卖单桶
+     * 卖单订单薄
      */
     private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets;
     /**
-     * 买单桶
+     * 买单订单薄
      */
     private final LongAdaptiveRadixTreeMap<Bucket> bidPriceBuckets;
 
@@ -95,6 +95,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
      */
     private final boolean logDebug;
 
+    /**
+     * 构造函数
+     *
+     * @param symbolSpec 币种描述符
+     * @param objectsPool 对象池
+     * @param eventsHelper 事件助手
+     * @param loggingCfg 日志配置
+     */
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec,
                                final ObjectsPool objectsPool,
                                final OrderBookEventsHelper eventsHelper,
@@ -109,6 +117,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
     }
 
+    /**
+     * 构造函数
+     *
+     * @param bytes 二进制数据输入
+     * @param objectsPool 对线池
+     * @param eventsHelper 事件助手
+     * @param loggingCfg 日志配置
+     */
     public OrderBookDirectImpl(final BytesIn bytes,
                                final ObjectsPool objectsPool,
                                final OrderBookEventsHelper eventsHelper,
@@ -130,9 +146,13 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
+    /**
+     * 添加新订单
+     *
+     * @param cmd - 订单指令 order to match/place
+     */
     @Override
     public void newOrder(final OrderCommand cmd) {
-
         switch (cmd.orderType) {
             case GTC:
                 newOrderPlaceGtc(cmd);
@@ -150,14 +170,293 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
+    /**
+     * 取消订单
+     *
+     * @param cmd - order command
+     * @return
+     */
+    @Override
+    public CommandResultCode cancelOrder(OrderCommand cmd) {
 
+        // TODO avoid double lookup ?
+        final DirectOrder order = orderIdIndex.get(cmd.orderId);
+        if (order == null || order.uid != cmd.uid) {
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+        orderIdIndex.remove(cmd.orderId);
+        objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
+
+        final Bucket freeBucket = removeOrder(order);
+        if (freeBucket != null) {
+            objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
+        }
+
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
+
+        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, order.getSize() - order.getFilled(), true);
+
+        return CommandResultCode.SUCCESS;
+    }
+
+    /**
+     * 缩减订单数量
+     *
+     * @param cmd - 订单指令 order command
+     *
+     * @return CommandResultCode
+     */
+    @Override
+    public CommandResultCode reduceOrder(OrderCommand cmd) {
+        // 获取订单ID和请求减少的数量
+        final long orderId = cmd.orderId;
+        final long requestedReduceSize = cmd.size;
+        // 检查请求减少的数量是否合法
+        if (requestedReduceSize <= 0) {
+            return CommandResultCode.MATCHING_REDUCE_FAILED_WRONG_SIZE;
+        }
+        // 根据订单ID获取订单对象
+        final DirectOrder order = orderIdIndex.get(orderId);
+        // 检查订单是否存在以及订单的拥有者是否与指令匹配
+        if (order == null || order.uid != cmd.uid) {
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+        // 计算订单剩余的数量和实际需要减少的数量
+        final long remainingSize = order.size - order.filled;
+        final long reduceBy = Math.min(remainingSize, requestedReduceSize);
+        // 判断是否可以移除订单
+        final boolean canRemove = reduceBy == remainingSize;
+        if (canRemove) {
+            // 如果可以移除订单，则从索引中移除订单并回收对象
+            orderIdIndex.remove(orderId);
+            objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
+            final Bucket freeBucket = removeOrder(order);
+            if (freeBucket != null) {
+                objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
+            }
+
+        } else {
+            // 如果不能移除订单，则更新订单的量和所属桶的量
+            order.size -= reduceBy;
+            order.parent.volume -= reduceBy;
+        }
+        // 发送缩减订单的事件
+        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, reduceBy, canRemove);
+        // fill action fields (for events handling)
+        // 填充指令的动作字段（用于事件处理）
+        cmd.action = order.getAction();
+        // 返回成功状态码
+        return CommandResultCode.SUCCESS;
+    }
+
+    /**
+     * 移动订单(改价)
+     *
+     * <p>
+     * 举例来说，如果有一个订单ID为123，价格为100，用户ID为456的订单需要移动到新的价格位置。
+     * 首先会通过orderIdIndex.get(cmd.orderId)查找该订单，如果找到订单并且用户ID匹配，则进行风险检查。
+     * 如果风险检查通过，则移除该订单，并将其价格更新为新的命令价格。
+     * 然后尝试立即匹配新的价格，如果订单完全匹配，则从订单ID索引中移除，并将订单对象返回到对象池中。
+     * 如果订单没有完全匹配，则将其填充量更新，并插入到新的价格位置。最后返回成功命令结果码
+     * </p>
+     *
+     * @param cmd - 订单指令 order command
+     *
+     * @return CommandResultCode
+     */
+    @Override
+    public CommandResultCode moveOrder(OrderCommand cmd) {
+
+        // order lookup 根据订单ID查找订单
+        final DirectOrder orderToMove = orderIdIndex.get(cmd.orderId);
+        if (orderToMove == null || orderToMove.uid != cmd.uid) {
+            // // 如果订单不存在或订单的用户ID与命令的用户ID不匹配，返回未知订单ID的命令结果码
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+        // risk check for exchange bids 对于交易所的投标，进行风险检查
+        if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && orderToMove.action == OrderAction.BID && cmd.price > orderToMove.reserveBidPrice) {
+            // 如果命令价格超过订单的保留投标价格，返回价格超过风险限制的命令结果码
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
+        }
+
+        // remove order 移除订单
+        final Bucket freeBucket = removeOrder(orderToMove);
+
+        // update price 更新订单价格
+        orderToMove.price = cmd.price;
+
+        // fill action fields (for events handling) 填写动作字段（用于事件处理）
+        cmd.action = orderToMove.getAction();
+
+        // try match with new price as a taker order 使用新的价格尝试立即匹配
+        final long filled = tryMatchInstantly(orderToMove, cmd);
+        if (filled == orderToMove.size) {
+            // order was fully matched - removing 如果订单完全匹配，从订单ID索引中移除
+            orderIdIndex.remove(cmd.orderId);
+            // returning free object back to the pool 将对象返回到对象池中
+            objectsPool.put(ObjectsPool.DIRECT_ORDER, orderToMove);
+            // 返回成功命令结果码
+            return CommandResultCode.SUCCESS;
+        }
+
+        // not filled completely, inserting into new position 如果订单没有完全填充，将其插入到新的位置
+        orderToMove.filled = filled;
+        // insert into a new place 插入到一个新的价格
+        insertOrder(orderToMove, freeBucket);
+
+        return CommandResultCode.SUCCESS;
+    }
+
+    @Override
+    public int getOrdersNum(OrderAction action) {
+        final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
+        final MutableInteger accum = new MutableInteger();
+        buckets.forEach((p, b) -> accum.value += b.numOrders, Integer.MAX_VALUE);
+        return accum.value;
+    }
+
+    @Override
+    public long getTotalOrdersVolume(OrderAction action) {
+        final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
+        final MutableLong accum = new MutableLong();
+        buckets.forEach((p, b) -> accum.value += b.volume, Integer.MAX_VALUE);
+        return accum.value;
+    }
+
+    @Override
+    public IOrder getOrderById(final long orderId) {
+        return orderIdIndex.get(orderId);
+    }
+
+    @Override
+    public void validateInternalState() {
+        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(Integer.MAX_VALUE), 0.8f);
+        validateChain(true, ordersInChain);
+        validateChain(false, ordersInChain);
+//        log.debug("ordersInChain={}", ordersInChain);
+//        log.debug("orderIdIndex={}", orderIdIndex);
+
+//        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
+//        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
+        orderIdIndex.forEach((k, v) -> {
+            if (ordersInChain.remove(k) != v) {
+                thrw("chained orders does not contain orderId=" + k);
+            }
+        }, Integer.MAX_VALUE);
+
+        if (ordersInChain.size() != 0) {
+            thrw("orderIdIndex does not contain each order from chains");
+        }
+    }
+
+    @Override
+    public OrderBookImplType getImplementationType() {
+        return OrderBookImplType.DIRECT;
+    }
+
+    @Override
+    public List<Order> findUserOrders(long uid) {
+        final List<Order> list = new ArrayList<>();
+        orderIdIndex.forEach((orderId, order) -> {
+            if (order.uid == uid) {
+                list.add(Order.builder()
+                        .orderId(orderId)
+                        .price(order.price)
+                        .size(order.size)
+                        .filled(order.filled)
+                        .reserveBidPrice(order.reserveBidPrice)
+                        .action(order.action)
+                        .uid(order.uid)
+                        .timestamp(order.timestamp)
+                        .build());
+            }
+        }, Integer.MAX_VALUE);
+
+        return list;
+    }
+
+    @Override
+    public CoreSymbolSpecification getSymbolSpec() {
+        return symbolSpec;
+    }
+
+    @Override
+    public Stream<DirectOrder> askOrdersStream(boolean sortedIgnore) {
+        return StreamSupport.stream(new OrdersSpliterator(bestAskOrder), false);
+    }
+
+    @Override
+    public Stream<DirectOrder> bidOrdersStream(boolean sortedIgnore) {
+        return StreamSupport.stream(new OrdersSpliterator(bestBidOrder), false);
+    }
+
+    @Override
+    public void fillAsks(final int size, L2MarketData data) {
+        data.askSize = 0;
+        askPriceBuckets.forEach((p, bucket) -> {
+            final int i = data.askSize++;
+            data.askPrices[i] = bucket.tail.price;
+            data.askVolumes[i] = bucket.volume;
+            data.askOrders[i] = bucket.numOrders;
+        }, size);
+    }
+
+    @Override
+    public void fillBids(final int size, L2MarketData data) {
+        data.bidSize = 0;
+        bidPriceBuckets.forEachDesc((p, bucket) -> {
+            final int i = data.bidSize++;
+            data.bidPrices[i] = bucket.tail.price;
+            data.bidVolumes[i] = bucket.volume;
+            data.bidOrders[i] = bucket.numOrders;
+        }, size);
+    }
+
+    /**
+     * 获取总卖单桶
+     *
+     * @param limit 界限
+     * @return
+     */
+    @Override
+    public int getTotalAskBuckets(final int limit) {
+        return askPriceBuckets.size(limit);
+    }
+
+    /**
+     * 获取总买单桶
+     *
+     * @param limit 界限
+     * @return
+     */
+    @Override
+    public int getTotalBidBuckets(final int limit) {
+        return bidPriceBuckets.size(limit);
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(getImplementationType().getCode());
+        symbolSpec.writeMarshallable(bytes);
+        bytes.writeInt(orderIdIndex.size(Integer.MAX_VALUE));
+        askOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
+        bidOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
+    }
+
+    /**
+     * 新Gtc订单
+     *
+     * @param cmd
+     */
     private void newOrderPlaceGtc(final OrderCommand cmd) {
         final long size = cmd.size;
 
-        // check if order is marketable there are matching orders
+        // check if order is marketable there are matching orders 尝试匹配订单
         final long filledSize = tryMatchInstantly(cmd, cmd);
         if (filledSize == size) {
-            // completed before being placed - can just return
+            // completed before being placed - can just return 匹配完成直接返回
             return;
         }
 
@@ -188,6 +487,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
         insertOrder(orderRecord, null);
     }
 
+    /**
+     * 新Ioc订单
+     *
+     * @param cmd
+     */
     private void newOrderMatchIoc(final OrderCommand cmd) {
 
         final long filledSize = tryMatchInstantly(cmd, cmd);
@@ -200,6 +504,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
+    /**
+     * 新FOK Budget订单
+     *
+     * @param cmd
+     */
     private void newOrderMatchFokBudget(final OrderCommand cmd) {
 
         final long budget = checkBudgetToFill(cmd.action, cmd.size);
@@ -249,43 +558,44 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     /**
-     * 订单匹配：新订单进入时，会尝试与对手方的最优订单进行撮合（tryMatchInstantly方法）。撮合过程中，会更新订单状态，生成交易事件，并移除完全成交的订单。
+     * 尝试订单匹配：新订单进入时，会尝试与对手方的最优订单进行撮合（tryMatchInstantly方法）。撮合过程中，会更新订单状态，生成交易事件，并移除完全成交的订单。
      *
-     * @param takerOrder 接收订单
-     * @param triggerCmd 触发命令
+     * @param takerOrder 接收到的订单，可以是买入或卖出订单
+     * @param triggerCmd 触发命令，包含订单类型和命令类型
      *
      * @return 已成交量
      */
     private long tryMatchInstantly(final IOrder takerOrder,
                                    final OrderCommand triggerCmd) {
 
-        // 是否买入订单
+        // 表示接收到的订单是否为买入订单
         final boolean isBidAction = takerOrder.getAction() == OrderAction.BID;
-        // 提交卖出方向的FOK_BUDGET订单时限价=0,其余场景正常取订单报价
+        // 根据订单类型和方向确定的限价。如果是卖出方向的FOK_BUDGET订单且不是买入动作，则限价为0；否则为订单报价
         final long limitPrice = (triggerCmd.command == OrderCommandType.PLACE_ORDER && triggerCmd.orderType == OrderType.FOK_BUDGET && !isBidAction)
                 ? 0L
                 : takerOrder.getPrice();
 
-        // 市场订单
+        // 选择市场订单
         DirectOrder makerOrder;
-        if (isBidAction) { // 买单
+        if (isBidAction) { // 如果是买入订单（isBidAction为真），则选择最优卖单（bestAskOrder）
             makerOrder = bestAskOrder;
-            if (makerOrder == null || makerOrder.price > limitPrice) { // 市场最优卖单价格高于买单限价,即无可成交订单,返回已成交量
+            if (makerOrder == null || makerOrder.price > limitPrice) { // 市场最优卖单价格高于买单限价,即无可匹配订单,返回已成交量
                 return takerOrder.getFilled();
             }
-        } else { // 卖单
+        } else { // 如果是卖出订单，则选择最优买单（bestBidOrder）
             makerOrder = bestBidOrder;
-            if (makerOrder == null || makerOrder.price < limitPrice) { // 市场最优买单价格低于卖单限价,即无可成交订单,返回已成交量
+            if (makerOrder == null || makerOrder.price < limitPrice) { // 市场最优买单价格低于卖单限价,即无可匹配订单,返回已成交量
                 return takerOrder.getFilled();
             }
         }
 
         // 主动买卖单的剩余量 = 总量 - 已成交量
         long remainingSize = takerOrder.getSize() - takerOrder.getFilled();
+        // 如果剩余量为0，则返回已成交量
         if (remainingSize == 0) {
             return takerOrder.getFilled();
         }
-        // 实时获取最优订单的桶的最后一个订单
+        // 实时获取最优订单的所属桶的最后一个订单
         DirectOrder priceBucketTail = makerOrder.parent.tail;
 
         final long takerReserveBidPrice = takerOrder.getReserveBidPrice();
@@ -296,51 +606,55 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // 匹配订单事件链
         MatcherTradeEvent eventsTail = null;
 
-        // iterate through all orders
+        // iterate through all orders 循环遍历市场订单
         do {
 
 //            log.debug("  matching from maker order: {}", makerOrder);
 
-            // calculate exact volume can fill for this order 计算此次订单可成交量：v = min(提交单剩余需成交量, 挂单剩余量)
+            // 计算每次匹配的成交量（tradeSize），更新市场挂单和订单桶的成交量
+            // calculate exact volume can fill for this order 计算此次订单可成交量：v = min(主动买卖单的剩余需成交量, 市场挂单剩余量)
             final long tradeSize = Math.min(remainingSize, makerOrder.size - makerOrder.filled);
 //                log.debug("  tradeSize: {} MIN(remainingSize={}, makerOrder={})", tradeSize, remainingSize, makerOrder.size - makerOrder.filled);
-            // 更新市场挂单的成交量
+            // 更新市场挂单的已成交量
             makerOrder.filled += tradeSize;
-            // 更新订单桶的成交量
+            // 更新市场订单桶的剩余未成交量
             makerOrder.parent.volume -= tradeSize;
-            // 更新主动单的剩余成交量
+            // 更新主动买卖单的剩余成交量
             remainingSize -= tradeSize;
-
-            // remove from order book filled orders 从订单薄中移除已完全成交的市场挂单
+            // remove from order book filled orders
+            // 如果市场挂单完全成交，则从订单薄中移除该挂单，并更新订单桶的订单数和引用。
             final boolean makerCompleted = makerOrder.size == makerOrder.filled;
             if (makerCompleted) {
                 // 市场挂单完全成交,订单桶订单数-1
                 makerOrder.parent.numOrders--;
             }
-            // 生成匹配订单事件链
+            // 生成订单匹配事件，并添加到事件链中
             final MatcherTradeEvent tradeEvent = eventsHelper.sendTradeEvent(makerOrder, makerCompleted, remainingSize == 0, tradeSize,
                     isBidAction ? takerReserveBidPrice : makerOrder.reserveBidPrice);
-
             if (eventsTail == null) {
+                // 链尾为空,链表还未开始构建,当前事件节点为链头
                 triggerCmd.matcherEvent = tradeEvent;
             } else {
+                // 链接新事件
                 eventsTail.nextEvent = tradeEvent;
             }
+            // 更新链尾指针
             eventsTail = tradeEvent;
 
             if (!makerCompleted) {
+                // 市场挂单未完全成交
                 // maker not completed -> no unmatched volume left, can exit matching loop
 //                    log.debug("  not completed, exit");
                 break;
             }
 
-            // if completed can remove maker order
+            // if completed can remove maker order 如果已完全成交
             orderIdIndex.remove(makerOrder.orderId);
             objectsPool.put(ObjectsPool.DIRECT_ORDER, makerOrder);
 
 
             if (makerOrder == priceBucketTail) {
-                // reached current price tail -> remove bucket reference
+                // reached current price tail -> remove bucket reference 达到当前价格尾部 -> 移除桶引用
                 final LongAdaptiveRadixTreeMap<Bucket> buckets = isBidAction ? askPriceBuckets : bidPriceBuckets;
                 buckets.remove(makerOrder.price);
                 objectsPool.put(ObjectsPool.DIRECT_BUCKET, makerOrder.parent);
@@ -378,114 +692,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
         return takerOrder.getSize() - remainingSize;
     }
 
-    @Override
-    public CommandResultCode cancelOrder(OrderCommand cmd) {
-
-        // TODO avoid double lookup ?
-        final DirectOrder order = orderIdIndex.get(cmd.orderId);
-        if (order == null || order.uid != cmd.uid) {
-            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
-        }
-        orderIdIndex.remove(cmd.orderId);
-        objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
-
-        final Bucket freeBucket = removeOrder(order);
-        if (freeBucket != null) {
-            objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
-        }
-
-        // fill action fields (for events handling)
-        cmd.action = order.getAction();
-
-        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, order.getSize() - order.getFilled(), true);
-
-        return CommandResultCode.SUCCESS;
-    }
-
-    @Override
-    public CommandResultCode reduceOrder(OrderCommand cmd) {
-
-        final long orderId = cmd.orderId;
-        final long requestedReduceSize = cmd.size;
-        if (requestedReduceSize <= 0) {
-            return CommandResultCode.MATCHING_REDUCE_FAILED_WRONG_SIZE;
-        }
-
-        final DirectOrder order = orderIdIndex.get(orderId);
-        if (order == null || order.uid != cmd.uid) {
-            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
-        }
-
-        final long remainingSize = order.size - order.filled;
-        final long reduceBy = Math.min(remainingSize, requestedReduceSize);
-        final boolean canRemove = reduceBy == remainingSize;
-
-        if (canRemove) {
-
-            orderIdIndex.remove(orderId);
-            objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
-
-            final Bucket freeBucket = removeOrder(order);
-            if (freeBucket != null) {
-                objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
-            }
-
-        } else {
-            order.size -= reduceBy;
-            order.parent.volume -= reduceBy;
-        }
-
-        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, reduceBy, canRemove);
-
-        // fill action fields (for events handling)
-        cmd.action = order.getAction();
-
-        return CommandResultCode.SUCCESS;
-    }
-
-    @Override
-    public CommandResultCode moveOrder(OrderCommand cmd) {
-
-        // order lookup
-        final DirectOrder orderToMove = orderIdIndex.get(cmd.orderId);
-        if (orderToMove == null || orderToMove.uid != cmd.uid) {
-            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
-        }
-
-        // risk check for exchange bids
-        if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && orderToMove.action == OrderAction.BID && cmd.price > orderToMove.reserveBidPrice) {
-            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
-        }
-
-        // remove order
-        final Bucket freeBucket = removeOrder(orderToMove);
-
-        // update price
-        orderToMove.price = cmd.price;
-
-        // fill action fields (for events handling)
-        cmd.action = orderToMove.getAction();
-
-        // try match with new price as a taker order
-        final long filled = tryMatchInstantly(orderToMove, cmd);
-        if (filled == orderToMove.size) {
-            // order was fully matched - removing
-            orderIdIndex.remove(cmd.orderId);
-            // returning free object back to the pool
-            objectsPool.put(ObjectsPool.DIRECT_ORDER, orderToMove);
-            return CommandResultCode.SUCCESS;
-        }
-
-        // not filled completely, inserting into new position
-        orderToMove.filled = filled;
-
-        // insert into a new place
-        insertOrder(orderToMove, freeBucket);
-
-        return CommandResultCode.SUCCESS;
-    }
-
-
+    /**
+     * 从桶中删除订单
+     *
+     *
+     * @param order
+     *
+     * @return 操作的桶
+     */
     private Bucket removeOrder(final DirectOrder order) {
 
         final Bucket bucket = order.parent;
@@ -524,17 +738,24 @@ public final class OrderBookDirectImpl implements IOrderBook {
         return bucketRemoved;
     }
 
-
+    /**
+     * 插入订单
+     *
+     * @param order 要插入的新订单
+     * @param freeBucket 一个可重用的空订单桶
+     */
     private void insertOrder(final DirectOrder order, final Bucket freeBucket) {
 
 //        log.debug("   + insert order: {}", order);
-
+        // 一个布尔值，表示订单是否为卖单（ASK）
         final boolean isAsk = order.action == OrderAction.ASK;
+        // 根据isAsk选择对应的订单桶地图
         final LongAdaptiveRadixTreeMap<Bucket> buckets = isAsk ? askPriceBuckets : bidPriceBuckets;
+        // 从订单桶地图中获取与订单价格对应的桶
         final Bucket toBucket = buckets.get(order.price);
-
+        // 如果toBucket不为null，说明订单价格对应的桶已经存在
         if (toBucket != null) {
-            // update tail if bucket already exists
+            // update tail if bucket already exists6
 //            log.debug(">>>> increment bucket {} from {} to {}", toBucket.tail.price, toBucket.volume, toBucket.volume +  order.size - order.filled);
 
             // can put bucket back to the pool (because target bucket already exists)
@@ -601,48 +822,6 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 order.next = null;
                 order.prev = oldBestOrder;
             }
-        }
-    }
-
-    @Override
-    public int getOrdersNum(OrderAction action) {
-        final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
-        final MutableInteger accum = new MutableInteger();
-        buckets.forEach((p, b) -> accum.value += b.numOrders, Integer.MAX_VALUE);
-        return accum.value;
-    }
-
-    @Override
-    public long getTotalOrdersVolume(OrderAction action) {
-        final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
-        final MutableLong accum = new MutableLong();
-        buckets.forEach((p, b) -> accum.value += b.volume, Integer.MAX_VALUE);
-        return accum.value;
-    }
-
-    @Override
-    public IOrder getOrderById(final long orderId) {
-        return orderIdIndex.get(orderId);
-    }
-
-    @Override
-    public void validateInternalState() {
-        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(Integer.MAX_VALUE), 0.8f);
-        validateChain(true, ordersInChain);
-        validateChain(false, ordersInChain);
-//        log.debug("ordersInChain={}", ordersInChain);
-//        log.debug("orderIdIndex={}", orderIdIndex);
-
-//        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
-//        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
-        orderIdIndex.forEach((k, v) -> {
-            if (ordersInChain.remove(k) != v) {
-                thrw("chained orders does not contain orderId=" + k);
-            }
-        }, Integer.MAX_VALUE);
-
-        if (ordersInChain.size() != 0) {
-            thrw("orderIdIndex does not contain each order from chains");
         }
     }
 
@@ -757,147 +936,83 @@ public final class OrderBookDirectImpl implements IOrderBook {
         throw new IllegalStateException(msg);
     }
 
-    @Override
-    public OrderBookImplType getImplementationType() {
-        return OrderBookImplType.DIRECT;
-    }
-
-    @Override
-    public List<Order> findUserOrders(long uid) {
-        final List<Order> list = new ArrayList<>();
-        orderIdIndex.forEach((orderId, order) -> {
-            if (order.uid == uid) {
-                list.add(Order.builder()
-                        .orderId(orderId)
-                        .price(order.price)
-                        .size(order.size)
-                        .filled(order.filled)
-                        .reserveBidPrice(order.reserveBidPrice)
-                        .action(order.action)
-                        .uid(order.uid)
-                        .timestamp(order.timestamp)
-                        .build());
-            }
-        }, Integer.MAX_VALUE);
-
-        return list;
-    }
-
-    @Override
-    public CoreSymbolSpecification getSymbolSpec() {
-        return symbolSpec;
-    }
-
-    @Override
-    public Stream<DirectOrder> askOrdersStream(boolean sortedIgnore) {
-        return StreamSupport.stream(new OrdersSpliterator(bestAskOrder), false);
-    }
-
-    @Override
-    public Stream<DirectOrder> bidOrdersStream(boolean sortedIgnore) {
-        return StreamSupport.stream(new OrdersSpliterator(bestBidOrder), false);
-    }
-
-    @Override
-    public void fillAsks(final int size, L2MarketData data) {
-        data.askSize = 0;
-        askPriceBuckets.forEach((p, bucket) -> {
-            final int i = data.askSize++;
-            data.askPrices[i] = bucket.tail.price;
-            data.askVolumes[i] = bucket.volume;
-            data.askOrders[i] = bucket.numOrders;
-        }, size);
-    }
-
-    @Override
-    public void fillBids(final int size, L2MarketData data) {
-        data.bidSize = 0;
-        bidPriceBuckets.forEachDesc((p, bucket) -> {
-            final int i = data.bidSize++;
-            data.bidPrices[i] = bucket.tail.price;
-            data.bidVolumes[i] = bucket.volume;
-            data.bidOrders[i] = bucket.numOrders;
-        }, size);
-    }
-
-    /**
-     * 获取总卖单桶
-     *
-     * @param limit 界限
-     * @return
-     */
-    @Override
-    public int getTotalAskBuckets(final int limit) {
-        return askPriceBuckets.size(limit);
-    }
-
-    /**
-     * 获取总买单桶
-     *
-     * @param limit 界限
-     * @return
-     */
-    @Override
-    public int getTotalBidBuckets(final int limit) {
-        return bidPriceBuckets.size(limit);
-    }
-
-    @Override
-    public void writeMarshallable(BytesOut bytes) {
-        bytes.writeByte(getImplementationType().getCode());
-        symbolSpec.writeMarshallable(bytes);
-        bytes.writeInt(orderIdIndex.size(Integer.MAX_VALUE));
-        askOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
-        bidOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
-    }
-
 
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
     public static final class DirectOrder implements WriteBytesMarshallable, IOrder {
 
+        /**
+         * 订单ID
+         */
         @Getter
         public long orderId;
 
+        /**
+         * 订单价格
+         */
         @Getter
         public long price;
 
+        /**
+         * 订单数量
+         */
         @Getter
         public long size;
 
+        /**
+         * 已成交数量
+         */
         @Getter
         public long filled;
 
         // new orders - reserved price for fast moves of GTC bid orders in exchange mode
+        /**
+         * 保留的投标价格，用于GTC（Good Till Cancelled，即撤销前有效）订单在交易所模式下的快速移动，是一个长整型变量
+         */
         @Getter
         public long reserveBidPrice;
 
         // required for PLACE_ORDER only;
+        // 订单行为类型枚举，仅用于下单，是一个枚举类型变量
         @Getter
         public OrderAction action;
 
+        /**
+         * 用户ID
+         */
         @Getter
         public long uid;
 
+        /**
+         * 时间戳
+         */
         @Getter
         public long timestamp;
 
         // fast orders structure
         /**
          * 快速订单结构
+         * 指向所属订单桶
          */
         Bucket parent;
 
         // next order (towards the matching direction, price grows for asks)
+        // 下一个订单（朝着匹配的方向，对于卖单价格递增）
         DirectOrder next;
 
         // previous order (to the tail of the queue, lower priority and worst price, towards the matching direction)
+        // 上一个订单（位于队列尾部，优先级较低且价格最差，朝向匹配方向）
         DirectOrder prev;
 
 
         // public int userCookie;
 
+        /**
+         * 用于从字节数组中读取并初始化订单的相关信息。构造函数中通过bytes.readLong()和bytes.readByte()等方法从BytesIn对象中读取数据，并分别赋值给对应的变量
+         *
+         * @param bytes 字节输入
+         */
         public DirectOrder(BytesIn bytes) {
 
 

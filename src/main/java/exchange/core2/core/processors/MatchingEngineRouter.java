@@ -45,6 +45,9 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Optional;
 
+/**
+ * 匹配引擎路由器
+ */
 @Slf4j
 @Getter
 public final class MatchingEngineRouter implements WriteBytesMarshallable {
@@ -250,8 +253,15 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         }
     }
 
+    /**
+     * 处理匹配指令
+     *
+     * @param cmd 接收的指令
+     */
     private void processMatchingCommand(final OrderCommand cmd) {
-
+        /**
+         *
+         */
         final IOrderBook orderBook = orderBooks.get(cmd.symbol);
         if (orderBook == null) {
             cmd.resultCode = CommandResultCode.MATCHING_INVALID_ORDER_BOOK_ID;

@@ -33,12 +33,12 @@ import java.util.Objects;
 public final class CoreSymbolSpecification implements WriteBytesMarshallable, StateHash {
 
     /**
-     * 标志ID
+     * 品种ID
      */
     public final int symbolId;
 
     /**
-     * 标志类型
+     * 品种类型
      */
     @NonNull
     public final SymbolType type;
