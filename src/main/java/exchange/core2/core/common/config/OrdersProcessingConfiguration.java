@@ -8,6 +8,8 @@ import lombok.ToString;
 
 
 /**
+ * 订单处理配置
+ *
  * Order processing configuration
  */
 @AllArgsConstructor

@@ -20,9 +20,11 @@ import lombok.ToString;
 import java.util.Arrays;
 
 /**
+ * L2市场数据
+ *
  * L2 Market Data carrier object
  * <p>
- * NOTE: Can have dirty data, askSize and bidSize are important!
+ * NOTE: Can have dirty data, askSize and bidSize are important! 可能会存在数据不准确的情况，而“买单数量”和“卖单数量”则非常重要
  */
 @ToString
 public final class L2MarketData {

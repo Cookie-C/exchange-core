@@ -16,6 +16,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.function.Supplier;
 
 /**
+ * 撮合引擎性能配置
+ *
  * Exchange performance configuration
  */
 @AllArgsConstructor

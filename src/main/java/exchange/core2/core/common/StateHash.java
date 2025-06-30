@@ -15,6 +15,9 @@
  */
 package exchange.core2.core.common;
 
+/**
+ * 状态哈希接口
+ */
 public interface StateHash {
 
     int stateHash();

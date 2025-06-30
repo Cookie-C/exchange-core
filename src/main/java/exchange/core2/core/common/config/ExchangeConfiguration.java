@@ -7,6 +7,8 @@ import lombok.Getter;
 
 
 /**
+ * 撮合引擎配置
+ *
  * Exchange configuration
  */
 @AllArgsConstructor
@@ -15,33 +17,33 @@ import lombok.Getter;
 public final class ExchangeConfiguration {
 
     /*
-     * Orders processing configuration
+     * Orders processing configuration 订单处理配置
      */
     private final OrdersProcessingConfiguration ordersProcessingCfg;
 
     /*
-     * Performance configuration
+     * Performance configuration 性能配置
      */
     private final PerformanceConfiguration performanceCfg;
 
 
     /*
-     * Exchange initialization configuration
+     * Exchange initialization configuration 交易初始化配置
      */
     private final InitialStateConfiguration initStateCfg;
 
     /*
-     * Exchange configuration
+     * Exchange configuration 交易配置
      */
     private final ReportsQueriesConfiguration reportsQueriesCfg;
 
     /*
-     * Logging configuration
+     * Logging configuration 日志配置
      */
     private final LoggingConfiguration loggingCfg;
 
     /*
-     * Serialization (snapshots and journaling) configuration
+     * Serialization (snapshots and journaling) configuration 序列化（快照和日志）配置
      */
     private final SerializationConfiguration serializationCfg;
 

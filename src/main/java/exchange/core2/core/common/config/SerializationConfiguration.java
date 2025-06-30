@@ -11,6 +11,9 @@ import lombok.ToString;
 
 import java.util.function.Function;
 
+/**
+ * 序列化（快照和日志）配置
+ */
 @AllArgsConstructor
 @Getter
 @Builder

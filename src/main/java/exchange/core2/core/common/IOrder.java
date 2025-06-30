@@ -15,6 +15,9 @@
  */
 package exchange.core2.core.common;
 
+/**
+ * 订单接口
+ */
 public interface IOrder extends StateHash {
 
     /**

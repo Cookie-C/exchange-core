@@ -26,6 +26,9 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Objects;
 
+/**
+ * 用户资料页
+ */
 @Slf4j
 public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
@@ -42,6 +45,9 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     // currency -> balance
     public final IntLongHashMap accounts;
 
+    /**
+     * 用户装填
+     */
     public UserStatus userStatus;
 
     public UserProfile(long uid, UserStatus userStatus) {

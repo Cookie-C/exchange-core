@@ -31,6 +31,9 @@ import java.util.stream.Stream;
 
 import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
 
+/**
+ * 订单薄事件助手
+ */
 @Slf4j
 @RequiredArgsConstructor
 public final class OrderBookEventsHelper {

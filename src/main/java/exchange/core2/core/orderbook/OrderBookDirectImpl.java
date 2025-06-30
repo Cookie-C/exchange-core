@@ -174,7 +174,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
      * 取消订单
      *
      * @param cmd - order command
-     * @return
+     *
+     * @return CommandResultCode
      */
     @Override
     public CommandResultCode cancelOrder(OrderCommand cmd) {
@@ -309,6 +310,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
         return CommandResultCode.SUCCESS;
     }
 
+    /**
+     *
+     * 统计订单数
+     *
+     * @param action 订单类型
+     *
+     * @return int
+     */
     @Override
     public int getOrdersNum(OrderAction action) {
         final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
@@ -317,6 +326,13 @@ public final class OrderBookDirectImpl implements IOrderBook {
         return accum.value;
     }
 
+    /**
+     * 统计量
+     *
+     * @param action 订单类型
+     *
+     * @return long
+     */
     @Override
     public long getTotalOrdersVolume(OrderAction action) {
         final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
@@ -325,11 +341,21 @@ public final class OrderBookDirectImpl implements IOrderBook {
         return accum.value;
     }
 
+    /**
+     * 获取订单
+     *
+     * @param orderId 订单ID
+     *
+     * @return IOrder
+     */
     @Override
     public IOrder getOrderById(final long orderId) {
         return orderIdIndex.get(orderId);
     }
 
+    /**
+     * 验证快照状态
+     */
     @Override
     public void validateInternalState() {
         final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(Integer.MAX_VALUE), 0.8f);
@@ -351,11 +377,23 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
+    /**
+     * 获取订单薄实现类型
+     *
+     * @return OrderBookImplType
+     */
     @Override
     public OrderBookImplType getImplementationType() {
         return OrderBookImplType.DIRECT;
     }
 
+    /**
+     * 查询用户的全部订单
+     *
+     * @param uid user id
+     *
+     * @return List<Order>
+     */
     @Override
     public List<Order> findUserOrders(long uid) {
         final List<Order> list = new ArrayList<>();
@@ -937,6 +975,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
 
+    /**
+     * 订单
+     */
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder

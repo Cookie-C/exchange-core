@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.ToString;
 
 /**
+ * 引擎初始化配置
+ *
  * Exchange initialization configuration
  * <p>
  * TODO use interface with different implementations for Clean, Snapshot, Journal

@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
+ * 报表配置
+ *
  * Reports configuration
  */
 @Getter

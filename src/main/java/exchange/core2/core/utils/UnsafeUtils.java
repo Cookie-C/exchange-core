@@ -22,6 +22,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 
+/**
+ * 风险工具类
+ */
 @Slf4j
 public final class UnsafeUtils {
 

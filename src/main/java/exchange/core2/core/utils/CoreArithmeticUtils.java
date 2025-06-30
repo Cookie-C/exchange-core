@@ -18,6 +18,9 @@ package exchange.core2.core.utils;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * 算术工具类
+ */
 @Slf4j
 public final class CoreArithmeticUtils {
 

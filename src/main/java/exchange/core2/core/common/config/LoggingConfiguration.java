@@ -10,6 +10,8 @@ import java.util.EnumSet;
 
 
 /**
+ * 日志级别配置
+ *
  * Exchange core logging configuration
  */
 @AllArgsConstructor

@@ -18,6 +18,9 @@ package exchange.core2.core.common;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+/**
+ * 仓位方向
+ */
 @AllArgsConstructor
 public enum PositionDirection {
     LONG(1),

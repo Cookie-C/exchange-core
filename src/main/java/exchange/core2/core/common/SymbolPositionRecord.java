@@ -25,25 +25,54 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.util.Objects;
 
+/**
+ * 品种持仓记录
+ */
 @Slf4j
 @NoArgsConstructor
 public final class SymbolPositionRecord implements WriteBytesMarshallable, StateHash {
 
+    /**
+     * 用户唯一标识符
+     */
     public long uid;
-
+    /**
+     * 交易品种
+     */
     public int symbol;
+    /**
+     * 计价货币
+     */
     public int currency;
 
     // open positions state (for margin trades only)
+    /**
+     * 持仓方向（买/卖/空，通过 PositionDirection 枚举实现）
+     */
     public PositionDirection direction = PositionDirection.EMPTY;
+    /**
+     * 当前持仓数量（保证金交易专用）
+     */
     public long openVolume = 0;
+    /**
+     * 持仓总成本价（避免浮点精度问题，用 long 存储）
+     */
     public long openPriceSum = 0; //
+    /**
+     * 当前持仓浮动盈亏（单位需结合业务逻辑）
+     */
     public long profit = 0;
 
-    // pending orders total size
-    // increment before sending order to matching engine
-    // decrement after receiving trade confirmation from matching engine
+    // pending orders total size 未完成的订单总数
+    // increment before sending order to matching engine 在向匹配引擎发送订单之前增加
+    // decrement after receiving trade confirmation from matching engine 从匹配引擎收到交易确认后递减
+    /**
+     * 待处理的卖出订单总量（发送到匹配引擎前递增，成交后递减）
+     */
     public long pendingSellSize = 0;
+    /**
+     * 待处理的买入订单总量（同上）
+     */
     public long pendingBuySize = 0;
 
     public void initialize(long uid, int symbol, int currency) {

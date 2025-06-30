@@ -17,9 +17,18 @@ package exchange.core2.core.common;
 
 import lombok.Getter;
 
+/**
+ * 用户状态
+ */
 @Getter
 public enum UserStatus {
+    /**
+     * 活跃
+     */
     ACTIVE(0), // normal user
+    /**
+     * 挂起
+     */
     SUSPENDED(1); // suspended
 
     private byte code;

@@ -27,6 +27,9 @@ import java.util.Iterator;
 import java.util.Objects;
 import java.util.stream.Stream;
 
+/**
+ * 哈希工具类
+ */
 @Slf4j
 public final class HashingUtils {
 
